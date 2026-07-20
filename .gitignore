@@ -1,0 +1,15 @@
+# Build artifacts
+build/
+
+# Generated test outputs
+*.sst
+*.wal
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+*.user
+*.suo
