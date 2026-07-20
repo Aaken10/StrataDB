@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 
 namespace stratadb {
@@ -171,4 +172,42 @@ bool DB::Close() {
     return true;
 }
 
+bool DB::Compact() {
+    std::lock_guard lock(mu_);
+    if (sstables_.empty()) return true;
+
+    std::map<std::string, SSTable::Entry> merged;
+    for (auto const& table : sstables_) {
+        for (auto const& entry : table->ReadAllEntries()) {
+            merged[entry.key] = entry;
+        }
+    }
+
+    std::vector<SSTable::Entry> live_entries;
+    live_entries.reserve(merged.size());
+    for (auto const& [key, entry] : merged) {
+        if (entry.type == WalRecordType::Put) {
+            live_entries.push_back(entry);
+        }
+    }
+
+    // If compaction produces no live rows, just discard old SSTables.
+    for (auto const& table : sstables_) {
+        fs::remove(table->Path());
+    }
+    sstables_.clear();
+
+    if (!live_entries.empty()) {
+        const std::string path = MakeSSTablePath(next_sstable_id_);
+        if (!SSTable::Create(path, live_entries)) return false;
+        auto compacted = SSTable::Open(path);
+        if (!compacted) return false;
+        sstables_.push_back(std::move(compacted));
+        ++next_sstable_id_;
+    }
+
+    return true;
+}
+
 } // namespace stratadb
+

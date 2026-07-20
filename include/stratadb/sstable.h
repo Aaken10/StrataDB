@@ -22,6 +22,8 @@ public:
     bool Get(const std::string& key, std::string* value) const;
     bool ContainsKey(const std::string& key) const;
     std::optional<Entry> Find(const std::string& key) const;
+    std::vector<Entry> ReadAllEntries() const;
+    const std::string& Path() const;
 
 private:
     struct IndexEntry {

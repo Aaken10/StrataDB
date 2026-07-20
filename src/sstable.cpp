@@ -34,6 +34,10 @@ static uint64_t read_u64(const uint8_t* ptr) {
 SSTable::SSTable(const std::string& path)
     : path_(path), filter_(10), data_start_offset_(0) {}
 
+const std::string& SSTable::Path() const {
+    return path_;
+}
+
 bool SSTable::Create(const std::string& path, const std::vector<Entry>& entries) {
     if (entries.empty()) return false;
     std::vector<Entry> sorted = entries;
@@ -201,6 +205,30 @@ std::optional<SSTable::Entry> SSTable::FindInBlock(uint64_t offset, uint32_t siz
         if (k == key) return Entry{k, v, type};
     }
     return std::nullopt;
+}
+
+std::vector<SSTable::Entry> SSTable::ReadAllEntries() const {
+    std::vector<Entry> entries;
+    std::ifstream in(path_, std::ios::binary);
+    if (!in) return entries;
+    for (auto const& idx : index_) {
+        in.seekg(idx.block_offset);
+        std::vector<uint8_t> block(idx.block_size);
+        in.read(reinterpret_cast<char*>(block.data()), block.size());
+        size_t pos = 0;
+        while (pos + 9 <= block.size()) {
+            uint32_t key_len = read_u32(block.data() + pos); pos += 4;
+            uint32_t val_len = read_u32(block.data() + pos); pos += 4;
+            WalRecordType type = static_cast<WalRecordType>(block[pos++]);
+            if (pos + key_len + val_len > block.size()) break;
+            std::string key(reinterpret_cast<char*>(block.data() + pos), key_len);
+            pos += key_len;
+            std::string value(reinterpret_cast<char*>(block.data() + pos), val_len);
+            pos += val_len;
+            entries.push_back({std::move(key), std::move(value), type});
+        }
+    }
+    return entries;
 }
 
 } // namespace stratadb

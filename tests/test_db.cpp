@@ -45,6 +45,11 @@ int main() {
         return 6;
     }
 
+    if (!db->Compact()) {
+        std::cerr << "compact failed\n";
+        return 6;
+    }
+
     db->Close();
     db.reset();
 

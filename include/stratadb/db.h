@@ -23,6 +23,7 @@ public:
     bool Put(const std::string& key, const std::string& value);
     bool Delete(const std::string& key);
     bool Get(const std::string& key, std::string* value) const;
+    bool Compact();
     bool Close();
 
 private:
