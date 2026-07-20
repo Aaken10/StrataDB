@@ -12,6 +12,7 @@ add_library(strata_core
     src/wal.cpp
     src/bloom_filter.cpp
     src/sstable.cpp
+    src/db.cpp
 )
 
 target_include_directories(strata_core PUBLIC include)
@@ -31,4 +32,7 @@ if(ENABLE_TESTS)
     add_executable(test_sstable tests/test_sstable.cpp)
     target_link_libraries(test_sstable PRIVATE strata_core)
     add_test(NAME sstable_test COMMAND test_sstable)
+    add_executable(test_db tests/test_db.cpp)
+    target_link_libraries(test_db PRIVATE strata_core)
+    add_test(NAME db_test COMMAND test_db)
 endif()

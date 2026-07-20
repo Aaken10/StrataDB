@@ -5,6 +5,7 @@
 #include <shared_mutex>
 #include <random>
 #include <functional>
+#include "stratadb/wal.h"
 
 namespace stratadb {
 
@@ -14,10 +15,14 @@ public:
     ~SkipList();
 
     // Insert a key/value. Returns true if inserted, false if replaced.
-    bool Insert(const std::string& key, const std::string& value);
+    bool Insert(const std::string& key, const std::string& value,
+                WalRecordType type = WalRecordType::Put);
 
     // Get value for key. Returns true if found.
-    bool Get(const std::string& key, std::string* value) const;
+    bool Get(const std::string& key, std::string* value,
+             WalRecordType* type = nullptr) const;
+
+    void ForEach(std::function<void(const std::string&, const std::string&, WalRecordType)> cb) const;
 
     size_t Size() const;
 
@@ -25,6 +30,7 @@ private:
     struct Node {
         std::string key;
         std::string value;
+        WalRecordType type = WalRecordType::Put;
         std::vector<Node*> next;
         Node(int level) : next(level, nullptr) {}
     };

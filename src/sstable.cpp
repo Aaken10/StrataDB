@@ -160,31 +160,26 @@ bool SSTable::Load() {
     return true;
 }
 
-bool SSTable::ContainsKey(const std::string& key) const {
-    if (!filter_.MayContain(key)) return false;
+std::optional<SSTable::Entry> SSTable::Find(const std::string& key) const {
+    if (!filter_.MayContain(key)) return std::nullopt;
     auto it = std::lower_bound(index_.begin(), index_.end(), key, [](auto const& entry, const std::string& key) {
         return entry.max_key < key;
     });
     if (it == index_.end()) {
-        if (index_.empty()) return false;
+        if (index_.empty()) return std::nullopt;
         it = std::prev(index_.end());
     }
-    auto e = FindInBlock(it->block_offset, it->block_size, key);
-    return e.has_value() && e->type != WalRecordType::Delete;
+    return FindInBlock(it->block_offset, it->block_size, key);
+}
+
+bool SSTable::ContainsKey(const std::string& key) const {
+    auto entry = Find(key);
+    return entry.has_value() && entry->type != WalRecordType::Delete;
 }
 
 bool SSTable::Get(const std::string& key, std::string* value) const {
-    if (!filter_.MayContain(key)) return false;
-    auto it = std::lower_bound(index_.begin(), index_.end(), key, [](auto const& entry, const std::string& key) {
-        return entry.max_key < key;
-    });
-    if (it == index_.end()) {
-        if (index_.empty()) return false;
-        it = std::prev(index_.end());
-    }
-    auto entry = FindInBlock(it->block_offset, it->block_size, key);
-    if (!entry.has_value()) return false;
-    if (entry->type == WalRecordType::Delete) return false;
+    auto entry = Find(key);
+    if (!entry.has_value() || entry->type == WalRecordType::Delete) return false;
     if (value) *value = entry->value;
     return true;
 }
