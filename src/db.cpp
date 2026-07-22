@@ -10,7 +10,8 @@ namespace stratadb {
 namespace fs = std::filesystem;
 
 DB::DB(const Options& options)
-    : path_(options.path), wal_path_((fs::path(path_) / "db.wal").string()), options_(options) {
+    : path_(options.path), wal_path_((fs::path(path_) / "db.wal").string()),
+      options_(options), block_cache_(options.block_cache_size) {
     fs::create_directories(path_);
     memtable_ = std::make_unique<MemTable>();
 }
@@ -23,7 +24,10 @@ std::unique_ptr<DB> DB::Open(const Options& options) {
     auto db = std::unique_ptr<DB>(new DB(options));
     if (!db->LoadSSTables()) return nullptr;
     try {
-        db->wal_ = std::make_unique<WAL>(db->wal_path_);
+        WAL::Options wal_opts;
+        wal_opts.sync_interval_ms = 1;
+        wal_opts.batch_size = 64;
+        db->wal_ = std::make_unique<WAL>(db->wal_path_, wal_opts);
     } catch (...) {
         return nullptr;
     }
@@ -59,7 +63,7 @@ bool DB::LoadSSTables() {
 
     next_sstable_id_ = 0;
     for (auto const& path : paths) {
-        auto table = SSTable::Open(path.string());
+        auto table = SSTable::Open(path.string(), &block_cache_);
         if (!table) return false;
         uint64_t parsed = ParseSSTableId(path.filename().string());
         next_sstable_id_ = std::max(next_sstable_id_, parsed + 1);
@@ -96,7 +100,6 @@ bool DB::Put(const std::string& key, const std::string& value) {
     rec.key = key;
     rec.value = value;
     if (!wal_->Append(rec)) return false;
-    if (!wal_->Sync()) return false;
     memtable_->Insert(key, value, WalRecordType::Put);
     if (memtable_->Size() >= options_.memtable_threshold) {
         return FlushMemTable();
@@ -111,7 +114,6 @@ bool DB::Delete(const std::string& key) {
     rec.key = key;
     rec.value.clear();
     if (!wal_->Append(rec)) return false;
-    if (!wal_->Sync()) return false;
     memtable_->Insert(key, std::string(), WalRecordType::Delete);
     if (memtable_->Size() >= options_.memtable_threshold) {
         return FlushMemTable();
@@ -152,7 +154,7 @@ bool DB::FlushMemTable() {
 
     const std::string path = MakeSSTablePath(next_sstable_id_);
     if (!SSTable::Create(path, entries)) return false;
-    auto table = SSTable::Open(path);
+    auto table = SSTable::Open(path, &block_cache_);
     if (!table) return false;
     sstables_.push_back(std::move(table));
     ++next_sstable_id_;
@@ -245,13 +247,14 @@ bool DB::CompactInternal() {
     sstables_.clear();
 
     for (auto const& path : old_paths) {
+        block_cache_.Invalidate(path);
         fs::remove(path);
     }
 
     if (!live_entries.empty()) {
         const std::string path = MakeSSTablePath(next_sstable_id_);
         if (!SSTable::Create(path, live_entries)) return false;
-        auto compacted = SSTable::Open(path);
+        auto compacted = SSTable::Open(path, &block_cache_);
         if (!compacted) return false;
         sstables_.push_back(std::move(compacted));
         ++next_sstable_id_;

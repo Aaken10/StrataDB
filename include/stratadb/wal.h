@@ -1,5 +1,10 @@
 #pragma once
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include <functional>
 
@@ -15,20 +20,39 @@ struct WalRecord {
 
 class WAL {
 public:
-    explicit WAL(const std::string& path);
+    struct Options {
+        size_t sync_interval_ms = 1;
+        size_t batch_size = 64;
+    };
+
+    explicit WAL(const std::string& path, const Options& opts = Options{});
     ~WAL();
 
-    // Append a record to WAL (durability controlled by caller via Sync)
     bool Append(const WalRecord& rec);
     bool Sync();
     void Close();
 
-    // Replay WAL file and invoke callback for each record
     static bool Replay(const std::string& path, std::function<void(const WalRecord&)> cb);
 
+    static std::vector<uint8_t> SerializeRecord(const WalRecord& rec);
+
 private:
+    void BackgroundSyncer();
+    void StopBackgroundThread();
+    bool FlushBuffer();
+
     std::string path_;
     FILE* f_ = nullptr;
+    Options opts_;
+
+    std::vector<uint8_t> write_buf_;
+    size_t pending_count_ = 0;
+    std::mutex buf_mu_;
+
+    std::atomic<bool> sync_running_{false};
+    std::thread sync_thread_;
+    std::mutex sync_mu_;
+    std::condition_variable sync_cv_;
 };
 
 } // namespace stratadb

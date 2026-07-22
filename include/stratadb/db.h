@@ -1,4 +1,5 @@
 #pragma once
+#include "stratadb/block_cache.h"
 #include "stratadb/memtable.h"
 #include "stratadb/sstable.h"
 #include "stratadb/wal.h"
@@ -20,6 +21,7 @@ public:
         size_t max_sstable_count = 4;
         bool background_flush = true;
         size_t flush_interval_ms = 1000;
+        size_t block_cache_size = 64 * 1024 * 1024;
     };
 
     static std::unique_ptr<DB> Open(const Options& options);
@@ -58,6 +60,8 @@ private:
     std::condition_variable bg_cv_;
     std::mutex bg_mu_;
     bool flush_requested_ = false;
+
+    BlockCache block_cache_;
 };
 
 } // namespace stratadb

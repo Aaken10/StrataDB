@@ -12,6 +12,7 @@ add_library(strata_core
     src/wal.cpp
     src/bloom_filter.cpp
     src/sstable.cpp
+    src/block_cache.cpp
     src/db.cpp
 )
 

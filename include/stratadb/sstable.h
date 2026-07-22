@@ -1,5 +1,6 @@
 #pragma once
 #include "stratadb/bloom_filter.h"
+#include "stratadb/block_cache.h"
 #include "stratadb/wal.h"
 #include <memory>
 #include <optional>
@@ -17,7 +18,9 @@ public:
     };
 
     static bool Create(const std::string& path, const std::vector<Entry>& entries);
-    static std::unique_ptr<SSTable> Open(const std::string& path);
+    static std::unique_ptr<SSTable> Open(const std::string& path, BlockCache* cache = nullptr);
+    static void SetGlobalCache(BlockCache* cache);
+    static BlockCache* GetGlobalCache();
 
     bool Get(const std::string& key, std::string* value) const;
     bool ContainsKey(const std::string& key) const;
@@ -36,6 +39,7 @@ private:
     BloomFilter filter_;
     std::vector<IndexEntry> index_;
     uint64_t data_start_offset_;
+    BlockCache* cache_ = nullptr;
 
     explicit SSTable(const std::string& path);
     bool Load();

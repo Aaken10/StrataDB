@@ -108,6 +108,37 @@ static void BM_Get_SSTable(benchmark::State& state) {
 }
 BENCHMARK(BM_Get_SSTable)->Unit(benchmark::kMicrosecond);
 
+static void BM_Get_SSTable_Cached(benchmark::State& state) {
+    std::filesystem::remove_all(kBenchPath);
+    DB::Options opts;
+    opts.path = kBenchPath;
+    opts.memtable_threshold = 2;
+    opts.max_sstable_count = 1000;
+    opts.background_flush = false;
+    opts.block_cache_size = 64 * 1024 * 1024;
+    auto db = DB::Open(opts);
+
+    for (int i = 0; i < kSmallN; ++i) {
+        db->Put(MakeKey(i), MakeValue(i));
+    }
+
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<int> dist(0, kSmallN - 1);
+    for (int i = 0; i < 1000; ++i) {
+        std::string val;
+        db->Get(MakeKey(dist(rng)), &val);
+    }
+
+    for (auto _ : state) {
+        std::string val;
+        db->Get(MakeKey(dist(rng)), &val);
+    }
+    state.SetItemsProcessed(state.iterations());
+    db->Close();
+    std::filesystem::remove_all(kBenchPath);
+}
+BENCHMARK(BM_Get_SSTable_Cached)->Unit(benchmark::kMicrosecond);
+
 static void BM_Compact(benchmark::State& state) {
     for (auto _ : state) {
         std::filesystem::remove_all(kBenchPath);

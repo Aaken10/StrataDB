@@ -7,6 +7,16 @@
 
 namespace stratadb {
 
+static BlockCache* g_global_cache = nullptr;
+
+void SSTable::SetGlobalCache(BlockCache* cache) {
+    g_global_cache = cache;
+}
+
+BlockCache* SSTable::GetGlobalCache() {
+    return g_global_cache;
+}
+
 static void write_le32(std::vector<uint8_t>& buf, uint32_t v) {
     buf.push_back(static_cast<uint8_t>(v & 0xFF));
     buf.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
@@ -117,8 +127,9 @@ bool SSTable::Create(const std::string& path, const std::vector<Entry>& entries)
     return true;
 }
 
-std::unique_ptr<SSTable> SSTable::Open(const std::string& path) {
+std::unique_ptr<SSTable> SSTable::Open(const std::string& path, BlockCache* cache) {
     auto table = std::unique_ptr<SSTable>(new SSTable(path));
+    table->cache_ = cache ? cache : g_global_cache;
     if (!table->Load()) return nullptr;
     return table;
 }
@@ -189,19 +200,50 @@ bool SSTable::Get(const std::string& key, std::string* value) const {
 }
 
 std::optional<SSTable::Entry> SSTable::FindInBlock(uint64_t offset, uint32_t size, const std::string& key) const {
-    std::ifstream in(path_, std::ios::binary);
-    if (!in) return std::nullopt;
-    in.seekg(offset);
-    std::vector<uint8_t> block(size);
-    in.read(reinterpret_cast<char*>(block.data()), size);
+    CachedBlock cached;
+    bool from_cache = false;
+
+    if (cache_) {
+        from_cache = cache_->Get(path_, offset, &cached);
+    }
+
+    const uint8_t* block_data;
+    std::vector<uint8_t> disk_block;
+
+    if (from_cache) {
+        block_data = cached.data.data();
+    } else {
+        std::ifstream in(path_, std::ios::binary);
+        if (!in) return std::nullopt;
+        in.seekg(offset);
+        disk_block.resize(size);
+        in.read(reinterpret_cast<char*>(disk_block.data()), size);
+        block_data = disk_block.data();
+
+        if (cache_ && disk_block.size() <= 256 * 1024) {
+            CachedBlock to_cache;
+            to_cache.data = std::move(disk_block);
+            cache_->Put(path_, offset, std::move(to_cache));
+        }
+    }
+
+    size_t total = from_cache ? cached.data.size() : size;
     size_t pos = 0;
-    while (pos + 9 <= block.size()) {
-        uint32_t key_len = read_u32(block.data() + pos); pos += 4;
-        uint32_t val_len = read_u32(block.data() + pos); pos += 4;
-        WalRecordType type = static_cast<WalRecordType>(block[pos++]);
-        if (pos + key_len + val_len > block.size()) break;
-        std::string k(reinterpret_cast<char*>(block.data() + pos), key_len); pos += key_len;
-        std::string v(reinterpret_cast<char*>(block.data() + pos), val_len); pos += val_len;
+    while (pos + 9 <= total) {
+        uint32_t key_len = static_cast<uint32_t>(block_data[pos]) |
+                           (static_cast<uint32_t>(block_data[pos+1]) << 8) |
+                           (static_cast<uint32_t>(block_data[pos+2]) << 16) |
+                           (static_cast<uint32_t>(block_data[pos+3]) << 24);
+        pos += 4;
+        uint32_t val_len = static_cast<uint32_t>(block_data[pos]) |
+                           (static_cast<uint32_t>(block_data[pos+1]) << 8) |
+                           (static_cast<uint32_t>(block_data[pos+2]) << 16) |
+                           (static_cast<uint32_t>(block_data[pos+3]) << 24);
+        pos += 4;
+        WalRecordType type = static_cast<WalRecordType>(block_data[pos++]);
+        if (pos + key_len + val_len > total) break;
+        std::string k(reinterpret_cast<const char*>(block_data + pos), key_len); pos += key_len;
+        std::string v(reinterpret_cast<const char*>(block_data + pos), val_len); pos += val_len;
         if (k == key) return Entry{k, v, type};
     }
     return std::nullopt;
