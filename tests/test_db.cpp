@@ -6,12 +6,13 @@ using namespace stratadb;
 namespace fs = std::filesystem;
 
 int main() {
+    std::cout << "db test start\n";
     const fs::path test_path = "test_db";
     if (fs::exists(test_path)) fs::remove_all(test_path);
 
     DB::Options opts;
     opts.path = test_path.string();
-    opts.memtable_threshold = 10;
+    opts.memtable_threshold = 2;
 
     auto db = DB::Open(opts);
     if (!db) {
@@ -47,7 +48,7 @@ int main() {
 
     if (!db->Compact()) {
         std::cerr << "compact failed\n";
-        return 6;
+        return 7;
     }
 
     db->Close();

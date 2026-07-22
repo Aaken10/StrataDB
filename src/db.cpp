@@ -152,6 +152,10 @@ bool DB::FlushMemTable() {
     sstables_.push_back(std::move(table));
     ++next_sstable_id_;
 
+    if (sstables_.size() > options_.max_sstable_count) {
+        if (!Compact()) return false;
+    }
+
     memtable_ = std::make_unique<MemTable>();
     wal_->Close();
     if (fs::exists(wal_path_) && !fs::remove(wal_path_)) return false;
@@ -191,11 +195,16 @@ bool DB::Compact() {
         }
     }
 
-    // If compaction produces no live rows, just discard old SSTables.
+    std::vector<std::string> old_paths;
+    old_paths.reserve(sstables_.size());
     for (auto const& table : sstables_) {
-        fs::remove(table->Path());
+        old_paths.push_back(table->Path());
     }
     sstables_.clear();
+
+    for (auto const& path : old_paths) {
+        fs::remove(path);
+    }
 
     if (!live_entries.empty()) {
         const std::string path = MakeSSTablePath(next_sstable_id_);
@@ -206,6 +215,7 @@ bool DB::Compact() {
         ++next_sstable_id_;
     }
 
+    return true;
     return true;
 }
 

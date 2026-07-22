@@ -14,6 +14,7 @@ public:
     struct Options {
         std::string path = ".";
         size_t memtable_threshold = 1 << 16;
+        size_t max_sstable_count = 4;
     };
 
     static std::unique_ptr<DB> Open(const Options& options);
