@@ -40,6 +40,11 @@ std::unique_ptr<DB> DB::Open(const Options& options) {
         }
     }
 
+    if (options.background_flush) {
+        db->bg_running_ = true;
+        db->bg_thread_ = std::thread(&DB::BackgroundFlusher, db.get());
+    }
+
     return db;
 }
 
@@ -153,7 +158,7 @@ bool DB::FlushMemTable() {
     ++next_sstable_id_;
 
     if (sstables_.size() > options_.max_sstable_count) {
-        if (!Compact()) return false;
+        if (!CompactInternal()) return false;
     }
 
     memtable_ = std::make_unique<MemTable>();
@@ -167,9 +172,42 @@ bool DB::FlushMemTable() {
     return true;
 }
 
+void DB::BackgroundFlusher() {
+    while (bg_running_) {
+        {
+            std::unique_lock lock(bg_mu_);
+            bg_cv_.wait_for(lock, std::chrono::milliseconds(options_.flush_interval_ms),
+                [this] { return flush_requested_ || !bg_running_; });
+        }
+
+        if (!bg_running_) break;
+
+        {
+            std::lock_guard lock(mu_);
+            if (flush_requested_ || memtable_->Size() >= options_.memtable_threshold) {
+                FlushMemTable();
+                flush_requested_ = false;
+            }
+        }
+    }
+
+    std::lock_guard lock(mu_);
+    FlushMemTable();
+}
+
+void DB::StopBackgroundThread() {
+    if (bg_running_) {
+        bg_running_ = false;
+        bg_cv_.notify_all();
+        if (bg_thread_.joinable()) bg_thread_.join();
+    }
+}
+
 bool DB::Close() {
+    StopBackgroundThread();
     std::lock_guard lock(mu_);
     if (wal_) {
+        FlushMemTable();
         wal_->Close();
         wal_.reset();
     }
@@ -178,6 +216,10 @@ bool DB::Close() {
 
 bool DB::Compact() {
     std::lock_guard lock(mu_);
+    return CompactInternal();
+}
+
+bool DB::CompactInternal() {
     if (sstables_.empty()) return true;
 
     std::map<std::string, SSTable::Entry> merged;
@@ -215,7 +257,6 @@ bool DB::Compact() {
         ++next_sstable_id_;
     }
 
-    return true;
     return true;
 }
 

@@ -36,3 +36,18 @@ if(ENABLE_TESTS)
     target_link_libraries(test_db PRIVATE strata_core)
     add_test(NAME db_test COMMAND test_db)
 endif()
+
+option(ENABLE_BENCHMARKS "Enable building benchmarks" ON)
+if(ENABLE_BENCHMARKS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googlebenchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG main
+    )
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googlebenchmark)
+
+    add_executable(bench_main benchmarks/bench_main.cpp)
+    target_link_libraries(bench_main PRIVATE strata_core benchmark::benchmark benchmark::benchmark_main)
+endif()

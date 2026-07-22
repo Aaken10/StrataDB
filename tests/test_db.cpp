@@ -13,6 +13,7 @@ int main() {
     DB::Options opts;
     opts.path = test_path.string();
     opts.memtable_threshold = 2;
+    opts.background_flush = false;
 
     auto db = DB::Open(opts);
     if (!db) {

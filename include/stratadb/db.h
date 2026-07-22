@@ -2,9 +2,12 @@
 #include "stratadb/memtable.h"
 #include "stratadb/sstable.h"
 #include "stratadb/wal.h"
+#include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace stratadb {
@@ -15,6 +18,8 @@ public:
         std::string path = ".";
         size_t memtable_threshold = 1 << 16;
         size_t max_sstable_count = 4;
+        bool background_flush = true;
+        size_t flush_interval_ms = 1000;
     };
 
     static std::unique_ptr<DB> Open(const Options& options);
@@ -32,8 +37,12 @@ private:
 
     bool LoadSSTables();
     bool FlushMemTable();
+    bool CompactInternal();
     std::string MakeSSTablePath(uint64_t id) const;
     static uint64_t ParseSSTableId(const std::string& filename);
+
+    void BackgroundFlusher();
+    void StopBackgroundThread();
 
     std::string path_;
     std::string wal_path_;
@@ -43,6 +52,12 @@ private:
     std::vector<std::unique_ptr<SSTable>> sstables_;
     uint64_t next_sstable_id_ = 0;
     mutable std::mutex mu_;
+
+    std::atomic<bool> bg_running_{false};
+    std::thread bg_thread_;
+    std::condition_variable bg_cv_;
+    std::mutex bg_mu_;
+    bool flush_requested_ = false;
 };
 
 } // namespace stratadb
